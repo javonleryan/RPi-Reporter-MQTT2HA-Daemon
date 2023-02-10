@@ -789,7 +789,12 @@ def getSystemTemperature():
 
 
 def getSystemCPUTemperature():
-    cmd_locn1 = '/sys/class/thermal/thermal_zone0/temp'
+    cmd_1 = '/sys/class/thermal/thermal_zone0/temp'
+    cmd_2 = '/sys/class/thermal/thermal_zone2/temp'
+    if cmd_1 < cmd_2:
+        cmd_locn1 = cmd_2
+    else:
+        cmd_locn1 = cmd_1
     cmdString = '/bin/cat {}'.format(
         cmd_locn1)
     if os.path.exists(cmd_locn1) == False:

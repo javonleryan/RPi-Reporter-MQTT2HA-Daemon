@@ -1098,6 +1098,7 @@ LD_SYS_TEMP = "temperature"
 LD_FS_USED = "disk_used"
 LDS_PAYLOAD_NAME = "info"
 LD_CPU_USE = "cpu_load"
+LD_MEM_USED = "mem_used"
 
 if interval_in_minutes < 5:
     LD_CPU_USE_JSON = "cpu.load_1min_prcnt"
@@ -1128,6 +1129,8 @@ detectorValues = OrderedDict([
      no_title_prefix="yes", json_value="fs_free_prcnt", unit="%", icon='mdi:sd')),
     (LD_CPU_USE, dict(title="RPi CPU Use {}".format(rpi_hostname),
      no_title_prefix="yes", json_value=LD_CPU_USE_JSON, unit="%", icon=LD_CPU_USE_ICON)),
+    (LD_MEM_USED, dict(title="RPi Mem Use {}".format(rpi_hostname),
+     no_title_prefix="yes", unit="%", json_value="memory_percent", icon='mdi:memory')),
 ])
 
 print_line('Announcing RPi Monitoring device to MQTT broker for auto-discovery ...')

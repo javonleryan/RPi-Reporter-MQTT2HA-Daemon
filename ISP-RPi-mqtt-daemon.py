@@ -25,7 +25,7 @@ import sdnotify
 from signal import signal, SIGPIPE, SIG_DFL
 signal(SIGPIPE, SIG_DFL)
 
-script_version = "1.6.1"
+script_version = "1.6.0"
 script_name = 'ISP-RPi-mqtt-daemon.py'
 script_info = '{} v{}'.format(script_name, script_version)
 project_name = 'RPi Reporter MQTT2HA Daemon'
@@ -249,6 +249,7 @@ rpi_throttle_status = []
 rpi_cpuload1 = ''
 rpi_cpuload5 = ''
 rpi_cpuload15 = ''
+rpi_memory_percent = ''
 
 # -----------------------------------------------------------------------------
 #  monitor variable fetch routines
@@ -331,6 +332,7 @@ def getDeviceCpuInfo():
 
 def getDeviceMemory():
     global rpi_memory_tuple
+    global rpi_memory_percent
     #  $ cat /proc/meminfo | /bin/egrep -i "mem[TFA]"
     #  MemTotal:         948304 kB
     #  MemFree:           40632 kB
@@ -358,6 +360,7 @@ def getDeviceMemory():
             mem_avail = float(lineParts[1]) / 1024
     # Tuple (Total, Free, Avail.)
     rpi_memory_tuple = (mem_total, mem_free, mem_avail)
+    rpi_memory_percent = (mem_total - mem_free) / mem_total * 100
     print_line('rpi_memory_tuple=[{}]'.format(rpi_memory_tuple), debug=True)
 
 
@@ -397,7 +400,7 @@ def getDeviceModel():
 
 def getLinuxRelease():
     global rpi_linux_release
-    out = subprocess.Popen("/bin/cat /etc/apt/sources.list | /bin/egrep -v '#' | /usr/bin/awk '{ print $3 }' | /bin/sed -e 's/-/ /g' | /usr/bin/cut -f1 -d' ' | /bin/grep . | /usr/bin/sort -u",
+    out = subprocess.Popen("/bin/cat /etc/apt/sources.list | /bin/egrep -v '#' | /usr/bin/awk '{ print $3 }' | /bin/grep . | /usr/bin/sort -u",
                            shell=True,
                            stdout=subprocess.PIPE,
                            stderr=subprocess.STDOUT)
@@ -651,17 +654,8 @@ def getFileSystemDrives():
     # /dev/mmcblk0p1 253 55 198 22% /boot
     # tmpfs 340 0 340 0% /run/user/1000
 
-    # FAILING Case v1.6.x (issue #61)
-    # [[/bin/df: /mnt/sabrent: No such device or address',
-    #   '/dev/root         119756  19503     95346  17% /',
-    #   '/dev/sda1         953868 882178     71690  93% /media/usb0',
-    #   '/dev/sdb1         976761  93684    883078  10% /media/pi/SSD']]
-
     tmpDrives = []
     for currLine in trimmedLines:
-        if 'no such device' in currLine.lower():
-            print_line('BAD LINE FORMAT, Skipped=[{}]'.format(currLine), debug=True, warning=True)
-            continue
         lineParts = currLine.split()
         print_line('lineParts({})=[{}]'.format(
             len(lineParts), lineParts), debug=True)
@@ -760,7 +754,9 @@ def getSystemTemperature():
     if cmd_fspec == '':
         rpi_system_temp = float('-1.0')
         rpi_gpu_temp = float('-1.0')
-        rpi_cpu_temp = float('-1.0')
+        rpi_cpu_temp = getSystemCPUTemperature()
+        if rpi_cpu_temp != -1.0:
+            rpi_system_temp = rpi_cpu_temp
     else:
         retry_count = 3
         while retry_count > 0 and 'failed' in rpi_gpu_temp_raw:
@@ -784,19 +780,29 @@ def getSystemTemperature():
         rpi_gpu_temp = interpretedTemp
         print_line('rpi_gpu_temp=[{}]'.format(rpi_gpu_temp), debug=True)
 
-        out = subprocess.Popen("/bin/cat /sys/class/thermal/thermal_zone0/temp",
-                               shell=True,
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT)
-        stdout, _ = out.communicate()
-        rpi_cpu_temp_raw = stdout.decode('utf-8').rstrip()
-        rpi_cpu_temp = float(rpi_cpu_temp_raw) / 1000.0
-        print_line('rpi_cpu_temp=[{}]'.format(rpi_cpu_temp), debug=True)
+        rpi_cpu_temp = getSystemCPUTemperature()
 
         # fallback to CPU temp is GPU not available
         rpi_system_temp = rpi_gpu_temp
         if rpi_gpu_temp == -1.0:
             rpi_system_temp = rpi_cpu_temp
+
+
+def getSystemCPUTemperature():
+    cmd_locn1 = '/sys/class/thermal/thermal_zone0/temp'
+    cmdString = '/bin/cat {}'.format(
+        cmd_locn1)
+    if os.path.exists(cmd_locn1) == False:
+        return float('-1.0')
+    out = subprocess.Popen(cmdString,
+                           shell=True,
+                           stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT)
+    stdout, _ = out.communicate()
+    rpi_cpu_temp_raw = stdout.decode('utf-8').rstrip()
+    rpi_cpu_temp = float(rpi_cpu_temp_raw) / 1000.0
+    print_line('rpi_cpu_temp=[{}]'.format(rpi_cpu_temp), debug=True)
+    return rpi_cpu_temp
 
 
 def getSystemThermalStatus():
@@ -1258,6 +1264,7 @@ RPI_DVC_PATH = "dvc"
 RPI_MEMORY = "memory"
 RPI_MEM_TOTAL = "size_mb"
 RPI_MEM_FREE = "free_mb"
+RPI_MEM_PERCENT = 'memory_percent'
 # Tuple (Hardware, Model Name, NbrCores, BogoMIPS, Serial)
 RPI_CPU = "cpu"
 RPI_CPU_HARDWARE = "hardware"
@@ -1311,6 +1318,7 @@ def send_status(timestamp, nothing):
     rpiRam = getMemoryDictionary()
     if len(rpiRam) > 0:
         rpiData[RPI_MEMORY] = rpiRam
+        rpiData[RPI_MEM_PERCENT] = '{:.1f}'.format(rpi_memory_percent)
 
     rpiCpu = getCPUDictionary()
     if len(rpiCpu) > 0:
